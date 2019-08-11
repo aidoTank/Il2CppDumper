@@ -75,10 +75,51 @@ namespace Il2CppDumper
             }
             var pt_dynamic = program_table.First(x => x.p_type == 2u);
             dynamic_table = ReadClassArray<Elf32_Dyn>(pt_dynamic.p_offset, pt_dynamic.p_filesz / 8u);
+
+            #region 判断并解密so
+            //统计 .text 段字节数
+            var s_text = sectionWithName[".text"];
+            var s_rodata = sectionWithName[".rodata"];
+
+            int[] bytecnt = new int[256];
+
+            Position = s_text.sh_offset;
+            byte[] text_bytes = ReadBytes((int)s_text.sh_size);
+            foreach (var b in text_bytes)
+            {
+                bytecnt[b]++;
+            }
+            byte xorbyte = (byte)Array.IndexOf(bytecnt, bytecnt.Max());
+            //解密
+            if (xorbyte != 0x00)
+            {
+                //text段
+                for (int i = 0; i < text_bytes.Length; i++)
+                    text_bytes[i] ^= xorbyte;
+                Position = s_text.sh_offset;
+                BaseStream.Write(text_bytes, 0, text_bytes.Length);
+                //rodata段
+                Position = s_rodata.sh_offset;
+                byte[] rodata_bytes = ReadBytes((int)s_rodata.sh_size);
+                for (int i = 0; i < rodata_bytes.Length; i++)
+                    rodata_bytes[i] ^= xorbyte;
+                Position = s_rodata.sh_offset;
+                BaseStream.Write(rodata_bytes, 0, rodata_bytes.Length);
+            }
+            //保存
+            FileStream fileStream = new FileStream("libil2cpp.fixed.so", FileMode.Create);
+            Position = 0;
+            BaseStream.CopyTo(fileStream);
+            fileStream.Close();
+
+            #endregion
+
+
             if (!isDumped)
             {
                 RelocationProcessing();
             }
+
         }
 
         private bool GetSectionWithName()
